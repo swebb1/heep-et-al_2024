@@ -1,0 +1,9 @@
+
+## Nextflow
+
+sh nextflow.sh : CUT&RUN pipeline version 3.1
+
+snakemake -pr --cores 10 : make bam, bw and deduplicated files
+
+scripts : shell scripts for merging replicates, running peak calling and making log2 tracks
+

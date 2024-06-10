@@ -1,0 +1,8 @@
+
+Snakefile : Run intial QC
+
+Snakefile_ATAC : Run ATAC-seq sample analysis
+
+Snakefile_ChIP : Run ChIP-seq analysis
+
+bin/scripts : scripts for merging replicates

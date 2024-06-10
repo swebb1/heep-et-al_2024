@@ -1,0 +1,71 @@
+
+import pandas as pd
+import os
+
+##GLOBALS##
+
+configfile: "config.yaml"
+
+samples = pd.read_table(config["samples"])
+project = config["project"]
+
+fn_dict = dict(zip(samples['Sample'], samples['Path']))
+
+##Functions
+
+# Define a function to get the control group for a given group
+def get_control_sample(sample):
+    control_sample = samples[samples["Sample"] == sample]["Control"].values[0]
+    return control_sample
+
+##Rules
+
+# Define the rule
+rule all:
+    input:
+        expand("bam/{sample}.bam", sample=fn_dict.keys()),
+	expand("bam/{sample}.bam.bai", sample=fn_dict.keys()),
+	expand("bam_NR/{sample}.NR.bam", sample=fn_dict.keys()),
+	expand("bam_NR/{sample}.NR.bam.bai", sample=fn_dict.keys()),
+        expand("bam/{sample}.bw", sample=fn_dict.keys()),
+	expand("bam_NR/{sample}.NR.bw", sample=fn_dict.keys())
+
+rule symlink:
+    output:
+        bam = "bam/{sample}.bam",
+	index = "bam/{sample}.bam.bai"
+    run:
+        sample_name = wildcards.sample
+        file_path = fn_dict[sample_name]
+        shell(f"ln -s {project}{file_path} bam/{sample_name}.bam")
+	shell(f"ln -s {project}{file_path}.bai bam/{sample_name}.bam.bai")
+
+rule removeDuplicates:
+    input:
+      "bam/{sample}.bam",
+    output:
+      bam = "bam_NR/{sample}.NR.bam",
+      index = "bam_NR/{sample}.NR.bam.bai"
+    shell:
+      """
+      picard MarkDuplicates -I {input} -O {output.bam} -M metric --REMOVE_DUPLICATES --VALIDATION_STRINGENCY LENIENT --ASSUME_SORTED 
+      samtools index {output.bam}
+      """
+      
+rule bamCoverage:
+    input:
+      "bam/{sample}.bam"
+    threads: 5
+    output:
+      "bam/{sample}.bw"
+    shell:
+      "bamCoverage -b {input} -o {output} -bs 1 -p {threads} --normalizeUsing CPM --ignoreForNormalization MT"
+
+rule bamCoverage_NR:
+    input:
+      "bam_NR/{sample}.NR.bam"
+    threads: 5
+    output:
+      "bam_NR/{sample}.NR.bw"
+    shell:
+      "bamCoverage -b {input} -o {output} -bs 1 -p {threads} --normalizeUsing CPM --ignoreForNormalization MT"

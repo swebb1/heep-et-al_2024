@@ -1,0 +1,165 @@
+import pandas as pd
+import os
+
+##GLOBALS##
+
+configfile: "bin/config_ChIP.yaml"
+
+samples = pd.read_table(config["samples"])
+print(samples)
+
+merged = pd.read_table(config["merged"])
+print(merged)
+
+filters = ["unique","primary","unique_NR","primary_NR"]
+
+##Functions
+
+##Rules
+
+rule all:
+  input:
+    expand("trimmomatic/{sample}.trimmomatic.{read}.fq.gz",sample=samples.Sample,read=[1,2]),
+    expand("trimmomatic/{sample}.trimmomatic.{read}_fastqc.html",sample=samples.Sample,read=[1,2]),
+    "trimmomatic/multiqc_report.html",
+    expand("bwa/{sample}/{sample}.sam",sample=samples.Sample),
+    expand("bwa/{sample}/{sample}.unique.bam",sample=samples.Sample),
+    expand("bwa/{sample}/multiqc_report.html",sample=samples.Sample),
+    expand("visualisation/{filter}/{sample}.{filter}.bpm.bw",sample=samples.Sample,filter=filters),
+    "bwa/readStats.html",
+    expand("merged_bam/primary_NR/{merged}.primary_NR.bam",merged=merged.Sample),
+    expand("merged_bam/primary_NR/{merged}.primary_NR.bam.bai",merged=merged.Sample),
+    expand("visualisation/merged/primary_NR/{merged}.primary_NR.bpm.bw",merged=merged.Sample),
+    expand("macs2/{sample}_peaks.narrowPeak",sample=samples.Sample),
+    expand("macs2/{sample}_peaks.broadPeak",sample=samples.Sample)
+
+rule trimmomatic:
+  input:
+    r1="fastq/{sample}_1.fq.gz",
+    r2="fastq/{sample}_2.fq.gz",
+  params:
+    adapter="TruSeq3-PE-2.fa"
+  output:
+    tr1="trimmomatic/{sample}.trimmomatic.1.fq.gz",
+    un1="trimmomatic/{sample}.unpaired.1.fq.gz",
+    tr2="trimmomatic/{sample}.trimmomatic.2.fq.gz",
+    un2="trimmomatic/{sample}.unpaired.2.fq.gz"
+  threads: 4
+  shell:
+    """
+    trimmomatic-0.35 PE -threads {threads} {input.r1} {input.r2} {output.tr1} {output.un1} {output.tr2} {output.un2} ILLUMINACLIP:{params.adapter}:2:30:10 SLIDINGWINDOW:4:15 TRAILING:20 MINLEN:20
+    """
+    
+rule fastqc_trimmomatic:
+  input:
+   "trimmomatic/{sample}.trimmomatic.{read}.fq.gz"
+  threads: 4
+  output:
+   "trimmomatic/{sample}.trimmomatic.{read}_fastqc.html"
+  shell:
+   "fastqc-0.11.9 {input}"
+
+rule multiqc_trimmomatic:
+  input:
+    expand("trimmomatic/{sample}.trimmomatic.{read}_fastqc.html",sample=samples.Sample,read=[1,2])
+  output:
+    "trimmomatic/multiqc_report.html"
+  shell:
+    "multiqc -f trimmomatic -o trimmomatic"
+
+rule mapBWA:
+  input:
+    r1="trimmomatic/{sample}.trimmomatic.1.fq.gz",
+    r2="trimmomatic/{sample}.trimmomatic.2.fq.gz"
+  params:
+    index="annotation/bwa_indexes/mm10"
+  output:
+    "bwa/{sample}/{sample}.sam"
+  threads: 5
+  shell:
+    "bwa-0.7.16 mem -t {threads} -M {params.index} {input.r1} {input.r2}  > {output}"
+
+rule processBWA:
+  input:
+   "bwa/{sample}/{sample}.sam"
+  params:
+   prefix="{sample}"
+  output:
+   "bwa/{sample}/{sample}.unique.bam",
+   "bwa/{sample}/multiqc_report.html"
+  shell:
+   "bash bin/scripts/processBWA_paired.sh {params.prefix}"
+
+rule bamCoverage:
+  input:
+    "bwa/{sample}/multiqc_report.html"
+  params:
+    bam = "bwa/{sample}/{sample}.{filter}.bam"
+  output:
+    "visualisation/{filter}/{sample}.{filter}.bpm.bw"
+  threads: 12
+  shell:
+    """
+    bamCoverage -bs 1 --normalizeUsing BPM -p {threads} -b {params.bam} --outFileName {output}
+    """
+
+rule readStats:
+  input:
+    expand("bwa/{sample}/multiqc_report.html",sample=samples.Sample)
+  output:
+    "bwa/readStats.html"
+  shell:
+    """
+    R -e "rmarkdown::render('bin/scripts/readStats.Rmd')" --args "../../bwa" "total,primary,unique,primary_NR,unique_NR" "../../samples.tsv" "Sample,Seq"
+    mv bin/scripts/readStats.html {output}
+    """
+
+rule mergeBam:
+   input:
+     bam1="bwa/{merged}_1/{merged}_1.primary_NR.bam",
+     bam2="bwa/{merged}_2/{merged}_2.primary_NR.bam"
+   output:
+     "merged_bam/primary_NR/{merged}.primary_NR.bam"
+   shell:
+     """
+     picard MergeSamFiles I={input.bam1} I={input.bam2} O={output} VALIDATION_STRINGENCY=LENIENT ASSUME_SORTED=true
+     """
+
+rule mergeBam_index:
+   input:
+     "merged_bam/primary_NR/{merged}.primary_NR.bam"
+   output:
+     "merged_bam/primary_NR/{merged}.primary_NR.bam.bai"
+   shell:
+     """
+     samtools index {input}
+     """
+
+rule bamCoverage_merged:
+  input:
+    "merged_bam/primary_NR/{merged}.primary_NR.bam.bai"
+  params:
+    bam="merged_bam/primary_NR/{merged}.primary_NR.bam"
+  output:
+    "visualisation/merged/primary_NR/{merged}.primary_NR.bpm.bw"
+  threads: 12
+  shell:
+    """
+    bamCoverage -bs 1 --normalizeUsing BPM -p {threads} -b {params.bam} --outFileName {output}
+    """
+
+rule macs2:
+  input:
+    t = "bwa/{sample}/{sample}.primary_NR.bam"
+  params:
+    dir = "macs2",
+    out = "{sample}"
+  output:
+    "macs2/{sample}_peaks.narrowPeak",
+    "macs2/{sample}_peaks.broadPeak"
+  shell:
+    """
+    macs2 callpeak -t {input.t} -g mm -f BAMPE --outdir {params.dir} --name {params.out} --seed 10 --tempdir macs2
+    macs2 callpeak -t {input.t} -g mm -f BAMPE --outdir {params.dir} --name {params.out} --seed 10 --tempdir macs2 --broad
+    """
+

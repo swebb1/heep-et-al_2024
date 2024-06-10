@@ -1,0 +1,59 @@
+import pandas as pd
+import os
+
+##GLOBALS##
+
+configfile: "bin/config.yaml"
+
+samples = pd.read_table(config["samples"])
+
+##Functions
+
+##Rules
+
+rule all:
+  input:
+    expand("fastq/{accession}_{read}.fastq.gz", accession=samples.Accession,read=[1,2]),
+    expand("fastq/{sample}_{read}.fq.gz", sample=samples.Sample,read=[1,2]),
+    expand("fastq/{sample}_{read}_fastqc.html",sample=samples.Sample,read=[1,2]),
+    "fastq/multiqc_report.html"
+
+#Get fastq files from sra
+rule get_fastq_pe:
+  output:
+    "fastq/{accession}_{read}.fastq.gz"
+  threads: 6
+  shell:
+    "fastq-dump --split-files --gzip --outdir fastq {wildcards.accession};"
+
+# Rename fastq files
+def rename_fastq_pe_input(wildcards):
+    samples_dict = dict(zip(samples['Sample'], samples['Accession']))
+    accession = samples_dict.get(wildcards.sample)
+    return "fastq/{accession}_{wildcards.read}.fastq.gz".format(**locals())
+
+rule rename_fastq_pe:
+  input:
+    rename_fastq_pe_input
+  output:
+    "fastq/{sample}_{read}.fq.gz",
+  shell:
+    "mv {input} {output}"
+
+rule fastqc_raw:
+  input:
+   "fastq/{sample}_{read}.fq.gz"
+  threads: 4
+  output:
+   "fastq/{sample}_{read}_fastqc.html"
+  shell:
+   "fastqc-0.11.9 {input}"
+
+rule multiqc_raw:
+  input:
+    expand("fastq/{sample}_{read}_fastqc.html",sample=samples.Sample,read=[1,2])
+  output:
+    "fastq/multiqc_report.html"
+  shell:
+    "multiqc -f fastq -o fastq"
+

@@ -1,0 +1,153 @@
+---
+title: "peak_analysis_K4+K9"
+author: "DRP-HCB Bioinformatics Core"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load, echo=FALSE, message=FALSE, warning=FALSE}
+library(GenomicRanges)
+library(genomation)
+library(ChIPseeker)
+library(tidyverse)
+library(org.Mm.eg.db)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(patchwork)
+library(gt)
+library(soGGi)
+library(profileplyr)
+
+s1.gr <- readRDS("co.peaks.rds")
+peakAnno_s1 <- readRDS("peakAnno_co.rds")
+#ens.txdb <- readRDS("ens.txdb.RDS")
+```
+
+## Peak summary
+
+```{r summary, echo=FALSE, message=FALSE, warning=FALSE}
+data.frame(Sample="K4_K9",Peaks=s1.gr |> length()) |> gt() |> tab_header(title = "K4 + K9")
+```
+
+## Peak annotations - K4 + K9
+
+```{r annos1, echo=FALSE, message=FALSE, warning=FALSE}
+plotAnnoBar(peakAnno_s1)
+```
+
+## Overlaps with genome elements
+
+Overlap analysis was performed by assigning peaks to genomic features in the following order.
+
+- LINE Elements (Overlaps with repeat annotations labelled as LINE class)
+
+- Other Repeat Elements - Genic (Overlap with LTR, Simple_repeat, Satellite, ERVK, Retrotransposon and SINE repeat annotations and a gene unit (coding or non-coding))
+
+- Other Repeat Elements - Intergenic (Overlap with LTR, Simple_repeat, Satellite, ERVK, Retrotransposon and SINE repeat annotations and a gene unit (coding or non-coding))
+
+- Gene (Overlap with a transcriptional unit, coding and non-coding, but not with a repeat)
+
+- Intergenic (No overlap with any of the features above)
+
+```{r,warning=F,echo=F,message=F}
+
+## Repeat annotations
+reps<-readGeneric("UCSC_mm10_repeat_masker.tsv",chr = 1,start = 2,end = 3,strand=4,keep.all.metadata = T,header = T)
+LEs = subset(reps,reps$repClass == "LINE" | reps$repClass == "LINE?")
+others = c("LTR","LTR?","Simple_repeat","Satellite","ERVK","Retrotransposon")
+repA = subset(reps,reps$repClass %in% others)
+
+## Gene annotations
+mm10 <- readGeneric("Mus_musculus.GRCm38.79.edited.bed",keep.all.metadata = T,strand = 6,meta.cols = c("name"=4,"geneID"=5,"biotype"=7))
+
+extend <- function(x, upstream=0, downstream=0)     
+{
+    if (any(strand(x) == "*"))
+        warning("'*' ranges were treated as '+'")
+    on_plus <- strand(x) == "+" | strand(x) == "*"
+    new_start <- start(x) - ifelse(on_plus, upstream, downstream)
+    new_end <- end(x) + ifelse(on_plus, downstream, upstream)
+    ranges(x) <- IRanges(new_start, new_end)
+    trim(x)
+}
+
+genes <- extend(mm10,500,0) ## Gene + upstream
+
+## LINE and No_LINE
+line_co = s1.gr[findOverlaps(s1.gr,LEs) |> queryHits() |> unique()]
+noline_co = s1.gr[-c(findOverlaps(s1.gr,LEs) |> queryHits() |> unique())]
+
+## No_LINE at other repeats
+rep_noline_co <- noline_co[findOverlaps(noline_co,repA) |> queryHits() |> unique()]
+norep_noline_co <- noline_co[-c(findOverlaps(noline_co,repA) |> queryHits() |> unique())]
+
+## No_LINE at genic/intergenic repeats
+rep_genic_noline_co <- rep_noline_co[findOverlaps(rep_noline_co,genes) |> queryHits() |> unique()]
+rep_inter_noline_co <- rep_noline_co[-c(findOverlaps(rep_noline_co,genes) |> queryHits() |> unique())]
+
+## No_LINE at genes
+gene_noline_co <- norep_noline_co[findOverlaps(norep_noline_co,genes) |> queryHits() |> unique()]
+inter_noline_co <-norep_noline_co[-c(findOverlaps(norep_noline_co,genes) |> queryHits() |> unique())]
+
+## Output BED
+dir.create("bed_files")
+rtracklayer::export.bed(line_co,"bed_files/line.bed")
+rtracklayer::export.bed(rep_genic_noline_co,"bed_files/repeat_genic_noline.bed")
+rtracklayer::export.bed(rep_inter_noline_co,"bed_files/repeat_intergenic_noline.bed")
+rtracklayer::export.bed(gene_noline_co,"bed_files/gene_noline.bed")
+rtracklayer::export.bed(inter_noline_co,"bed_files/intergenic_noline.bed")
+
+## Table
+dfr <- data.frame(Feature = c("LINE Element","Other Repeat - Genic","Other Repeat - Intergenic", "Gene","Intergenic"), Overlap = c(length(line_co),length(rep_genic_noline_co),length(rep_inter_noline_co),length(gene_noline_co),                              length(inter_noline_co))
+)
+
+dfr |> gt()
+
+## Plot
+peakcols = c("#002642","#840032","#844433","#E59500","#9097C0")
+
+dfr |> 
+  mutate(Feature=factor(Feature,levels=c("LINE Element","Other Repeat - Genic","Other Repeat - Intergenic","Gene","Intergenic"))) |>
+  ggplot(aes(Feature,Overlap,fill=Feature))+geom_col(position="stack") +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle=45,hjust=1)) +
+  ggtitle("K4 + K9 Peak overlaps with genomic features") +
+  scale_fill_manual(values=peakcols)+
+  xlab("K4 + K9 Peaks")
+
+```
+
+## Overlaps with LINE elements
+
+```{r,warning=F,echo=F,message=F}
+
+repList<-readRDS("repList_unfiltered.rds")
+
+LA = line_co[c(findOverlaps(line_co,repList$L1Md_A) |> queryHits() |> unique())]
+noLA = line_co[-c(findOverlaps(line_co,repList$L1Md_A) |> queryHits() |> unique())]
+LT = noLA[c(findOverlaps(noLA,repList$L1Md_T) |> queryHits() |> unique())]
+noLT = noLA[-c(findOverlaps(noLA,repList$L1Md_T) |> queryHits() |> unique())]
+LF = noLT[c(findOverlaps(noLT,repList$L1Md_F) |> queryHits() |> unique())]
+noLF = noLT[-c(findOverlaps(noLT,repList$L1Md_F) |> queryHits() |> unique())]
+LG = noLF[c(findOverlaps(noLF,repList$L1Md_Gf) |> queryHits() |> unique())]
+other = noLF[-c(findOverlaps(noLF,repList$L1Md_Gf) |> queryHits() |> unique())]
+
+dfr <- data.frame(LINE=c("L1Md_A","L1Md_T","L1Md_F","L1Md_Gf","Other"),
+                 Overlap=c(length(LA),length(LT),length(LF),length(LG),length(other)))
+
+dfr |> gt()
+
+l1cols=c("#D62839","#BA324F","#175676","#4BA3C3","darkgrey")
+    
+dfr |> 
+  mutate(LINE=factor(LINE,levels=c("L1Md_A","L1Md_T","L1Md_F","L1Md_Gf","Other"))) |>
+  ggplot(aes(1,Overlap,fill=LINE))+geom_col(position="stack") +
+  theme_bw()+
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values=l1cols)+
+  xlab("K4 + K9 LINE Peaks")
+
+```

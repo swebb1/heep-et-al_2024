@@ -1,0 +1,424 @@
+---
+title: "peak_analysis_K4+K9"
+author: "DRP-HCB Bioinformatics Core"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load, echo=FALSE, message=FALSE, warning=FALSE}
+library(GenomicRanges)
+library(genomation)
+library(ChIPseeker)
+library(tidyverse)
+library(org.Mm.eg.db)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(patchwork)
+library(gt)
+library(soGGi)
+library(profileplyr)
+
+s1.gr <- readRDS("co.peaks.rds")
+peakAnno_s1 <- readRDS("peakAnno_co.rds")
+#ens.txdb <- readRDS("ens.txdb.RDS")
+```
+
+## Peak summary
+
+```{r summary, echo=FALSE, message=FALSE, warning=FALSE}
+data.frame(Sample="K4_K9",Peaks=s1.gr |> length()) |> gt() |> tab_header(title = "K4 + K9")
+```
+
+## Peak annotations - K4 + K9
+
+```{r annos1, echo=FALSE, message=FALSE, warning=FALSE}
+plotAnnoBar(peakAnno_s1)
+```
+
+## Read profiles over K4 + K9 peaks
+
+```{r rp_s1, echo=FALSE, message=FALSE, warning=FALSE}
+
+s1.ens.gr<-s1.gr
+seqlevelsStyle(s1.ens.gr)<-"ensembl"
+
+r.s1 <- regionPlot(bamFile = "../../bam_files/CUT_and_TAG_peaks/SPIN1_E145.bw",testRanges = s1.ens.gr,format = "bigwig",style = "point",distanceAround = 2000)
+
+r.k4 <- regionPlot(bamFile ="../../bam_files/CUT_and_TAG_peaks/H3K4me3_E145.bw",testRanges = s1.ens.gr,format = "bigwig",style = "point",distanceAround = 2000)
+
+r.k9 <- regionPlot(bamFile ="../../bam_files/CUT_and_TAG_peaks/H3K9me3_E145.bw",testRanges = s1.ens.gr,format = "bigwig",style = "point",distanceAround = 2000)
+
+r.sd1 <- regionPlot(bamFile = "../../bam_files/CUT_and_TAG_peaks/SPOCD1_E145.bw",testRanges = s1.ens.gr,format = "bigwig",style = "point",distanceAround = 2000)
+
+rs <- c(r.s1,r.k4,r.k9,r.sd1)
+```
+
+
+```{r rp_s12, echo=FALSE, message=FALSE, warning=FALSE}
+
+# log2 files
+
+r.s1 <- regionPlot(bamFile = "../../bam_files/CUT_and_TAG_peaks/SPIN1_E145.log2.bw",testRanges = s1.ens.gr,format = "bigwig",style = "point",distanceAround = 2000)
+
+r.k4 <- regionPlot(bamFile ="../../bam_files/CUT_and_TAG_peaks/H3K4me3_E145.log2.bw",testRanges = s1.ens.gr,format = "bigwig",style = "point",distanceAround = 2000)
+
+r.k9 <- regionPlot(bamFile ="../../bam_files/CUT_and_TAG_peaks/H3K9me3_E145.log2.bw",testRanges = s1.ens.gr,format = "bigwig",style = "point",distanceAround = 2000)
+
+r.sd1 <- regionPlot(bamFile = "../../bam_files/CUT_and_TAG_peaks/SPOCD1_E145.log2.bw",testRanges = s1.ens.gr,format = "bigwig",style = "point",distanceAround = 2000)
+
+rsl2 <- c(r.s1,r.k4,r.k9,r.sd1)
+```
+
+```{r plot_s1, echo=FALSE, message=FALSE, warning=FALSE,fig.width=12,fig.height=5}
+
+dir.create("pdf")
+
+samcols = c("H3K4me3_E145.bw"="#66C7F4","H3K9me3_E145.bw"="#6C6EA0",
+            "SPIN1_E145.bw"="#1A936F","SPOCD1_E145.bw"="#E59500")
+
+sp1 <- plotRegion(rs,colourBy = "Sample",outliers = 0.05) + theme_bw() + scale_colour_manual(values = samcols,labels=c("SPIN1","H3K4me3","H3K9me3","SPOCD1"))+
+  ggtitle("Average Read Profiles")
+
+sp1
+
+ggsave("pdf/Average_profile_read_coverage.pdf",sp1)
+
+```
+
+```{r eh_s1, echo=FALSE, message=FALSE, warning=FALSE,fig.width=12,fig.height=5}
+library(circlize)
+col_fun = colorRamp2(c(0, 2, 6), c("#ffffd9","#7fcdbb","#0c2c84"))
+col_fun2 = colorRamp2(c(0,1,2), c("#ffffd9","#7fcdbb","#0c2c84"))
+
+## convert chipProfile object to profileplyr object
+pp <- as_profileplyr(rs)
+pp |> generateEnrichedHeatmap(matrices_color = col_fun)
+
+```
+
+```{r plot_s12, echo=FALSE, message=FALSE, warning=FALSE,fig.width=12,fig.height=5}
+
+samcols2 = c("H3K4me3_E145.log2.bw"="#66C7F4","H3K9me3_E145.log2.bw"="#6C6EA0", "SPIN1_E145.log2.bw"="#1A936F","SPOCD1_E145.log2.bw"="#E59500")
+
+sp1 <- plotRegion(rsl2,colourBy = "Sample",outliers = 0.05) + theme_bw() + scale_colour_manual(values = samcols2,labels=c("SPIN1","H3K4me3","H3K9me3","SPOCD1"))+
+  ggtitle("Average Profile log2(IP/Control)")
+
+sp1
+
+ggsave("pdf/Average_profile_log2_control.pdf",sp1)
+
+```
+
+```{r eh_s12, echo=FALSE, message=FALSE, warning=FALSE,fig.width=12,fig.height=5}
+## convert chipProfile object to profileplyr object
+pp <- as_profileplyr(rsl2)
+pp |> generateEnrichedHeatmap(matrices_color = col_fun2)
+
+```
+
+## Overlaps with genome elements
+
+Overlap analysis was performed by assigning peaks to genomic features in the following order.
+
+- LINE Elements (Overlaps with repeat annotations labelled as LINE class)
+
+- Other Repeat Elements - Genic (Overlap with LTR, Simple_repeat, Satellite, ERVK, Retrotransposon and SINE repeat annotations and a gene unit (coding or non-coding))
+
+- Other Repeat Elements - Intergenic (Overlap with LTR, Simple_repeat, Satellite, ERVK, Retrotransposon and SINE repeat annotations and a gene unit (coding or non-coding))
+
+- Gene (Overlap with a transcriptional unit, coding and non-coding, but not with a repeat)
+
+- Intergenic (No overlap with any of the features above)
+
+```{r,warning=F,echo=F,message=F}
+
+## Repeat annotations
+reps<-readGeneric("../../../yamanaka_ChIP_ATAC-seq_reanalysis_Aug21/annotation/UCSC_mm10_repeat_masker.tsv",chr = 1,start = 2,end = 3,strand=4,keep.all.metadata = T,header = T)
+LEs = subset(reps,reps$repClass == "LINE" | reps$repClass == "LINE?")
+others = c("LTR","LTR?","Simple_repeat","Satellite","ERVK","Retrotransposon")
+repA = subset(reps,reps$repClass %in% others)
+
+## Gene annotations
+mm10 <- readGeneric("/datastore/home/genomes/mouse/mm10/annotation/Mus_musculus.GRCm38.79.edited.bed",keep.all.metadata = T,strand = 6,meta.cols = c("name"=4,"geneID"=5,"biotype"=7))
+
+extend <- function(x, upstream=0, downstream=0)     
+{
+    if (any(strand(x) == "*"))
+        warning("'*' ranges were treated as '+'")
+    on_plus <- strand(x) == "+" | strand(x) == "*"
+    new_start <- start(x) - ifelse(on_plus, upstream, downstream)
+    new_end <- end(x) + ifelse(on_plus, downstream, upstream)
+    ranges(x) <- IRanges(new_start, new_end)
+    trim(x)
+}
+
+genes <- extend(mm10,500,0) ## Gene + upstream
+
+## LINE and No_LINE
+line_co = s1.gr[findOverlaps(s1.gr,LEs) |> queryHits() |> unique()]
+noline_co = s1.gr[-c(findOverlaps(s1.gr,LEs) |> queryHits() |> unique())]
+
+## No_LINE at other repeats
+rep_noline_co <- noline_co[findOverlaps(noline_co,repA) |> queryHits() |> unique()]
+norep_noline_co <- noline_co[-c(findOverlaps(noline_co,repA) |> queryHits() |> unique())]
+
+## No_LINE at genic/intergenic repeats
+rep_genic_noline_co <- rep_noline_co[findOverlaps(rep_noline_co,genes) |> queryHits() |> unique()]
+rep_inter_noline_co <- rep_noline_co[-c(findOverlaps(rep_noline_co,genes) |> queryHits() |> unique())]
+
+## No_LINE at genes
+gene_noline_co <- norep_noline_co[findOverlaps(norep_noline_co,genes) |> queryHits() |> unique()]
+inter_noline_co <-norep_noline_co[-c(findOverlaps(norep_noline_co,genes) |> queryHits() |> unique())]
+
+## Output BED
+dir.create("bed_files")
+rtracklayer::export.bed(line_co,"bed_files/line.bed")
+rtracklayer::export.bed(rep_genic_noline_co,"bed_files/repeat_genic_noline.bed")
+rtracklayer::export.bed(rep_inter_noline_co,"bed_files/repeat_intergenic_noline.bed")
+rtracklayer::export.bed(gene_noline_co,"bed_files/gene_noline.bed")
+rtracklayer::export.bed(inter_noline_co,"bed_files/intergenic_noline.bed")
+
+## Table
+dfr <- data.frame(Feature = c("LINE Element","Other Repeat - Genic","Other Repeat - Intergenic", "Gene","Intergenic"), Overlap = c(length(line_co),length(rep_genic_noline_co),length(rep_inter_noline_co),length(gene_noline_co),                              length(inter_noline_co))
+)
+
+dfr |> gt()
+
+## Plot
+peakcols = c("#002642","#840032","#844433","#E59500","#9097C0")
+
+dfr |> 
+  mutate(Feature=factor(Feature,levels=c("LINE Element","Other Repeat - Genic","Other Repeat - Intergenic","Gene","Intergenic"))) |>
+  ggplot(aes(Feature,Overlap,fill=Feature))+geom_col(position="stack") +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle=45,hjust=1)) +
+  ggtitle("K4 + K9 Peak overlaps with genomic features") +
+  scale_fill_manual(values=peakcols)+
+  xlab("K4 + K9 Peaks")
+
+```
+
+### Read profiles over genome elements 
+
+```{r anno_plot_s1, echo=FALSE, message=FALSE, warning=FALSE,fig.width=12,fig.height=5}
+
+gts <- GRangesList("Line Element" = line_co, "Other Repeat - Genic" = rep_genic_noline_co, "Other Repeat - Intergenic" = rep_inter_noline_co,
+                       "Gene" = gene_noline_co, "Intergenic" = inter_noline_co)
+
+seqlevelsStyle(gts)<-"ensembl"
+
+rs@rowRanges$Group <- ifelse(rs@rowRanges$name %in% line_co$name,"LINE_Element",
+             ifelse(rs@rowRanges$name %in% rep_genic_noline_co$name,"Other_Repeat_Genic",
+             ifelse(rs@rowRanges$name %in% rep_inter_noline_co$name,"Other_Repeat_Intergenic",
+             ifelse(rs@rowRanges$name %in% gene_noline_co$name,"Gene",
+             ifelse(rs@rowRanges$name %in% inter_noline_co$name,"Intergenic","")
+             )))) 
+
+spp1 <- plotRegion(rs,gts = gts,colourBy = "Sample",groupBy = "Group",freeScale = T, outliers = 0.1)+theme_bw()+
+  labs(y = "Normalised read count (CPM)", x = "") +
+  theme(axis.text.x = element_text(angle=90,hjust=1,size=10)) +
+  scale_colour_manual(values = samcols,labels = c("H3K4me3","H3K9me3","SPIN1","SPOCD1")) +
+  ggtitle("Average Profiles")
+
+spp1
+
+ggsave("pdf/Average_profile_elements_read_coverage.pdf",spp1)
+
+spp2 <- plotRegion(rs,gts = gts,colourBy = "Group",groupBy = "Sample",freeScale = T, outliers = 0.1)+theme_bw()+
+  labs(y = "Normalised read count (CPM)", x = "") +
+  scale_colour_manual(values = peakcols) +
+  ggtitle("Average Profiles")
+
+spp2
+
+ggsave("pdf/Average_profile_elements_by_sample_read_coverage.pdf",spp2)
+
+```
+
+```{r anno_eh_s1, echo=FALSE, message=FALSE, warning=FALSE,fig.width=12,fig.height=5}
+## convert chipProfile object to profileplyr object
+ppp <- as_profileplyr(rs)
+ppp@rowRanges$sgGroup<-ppp@rowRanges$Group
+ppp |> generateEnrichedHeatmap(matrices_color = col_fun,
+        group_anno_row_title_gp = gpar(fontsize = 3))
+```
+
+
+```{r pp log2, echo=FALSE, message=FALSE, warning=FALSE,fig.width=12,fig.height=5}
+
+rsl2@rowRanges$Group <- ifelse(rsl2@rowRanges$name %in% line_co$name,"LINE_Element",
+             ifelse(rsl2@rowRanges$name %in% rep_genic_noline_co$name,"Other_Repeat_Genic",
+             ifelse(rsl2@rowRanges$name %in% rep_inter_noline_co$name,"Other_Repeat_Intergenic",
+             ifelse(rsl2@rowRanges$name %in% gene_noline_co$name,"Gene",
+             ifelse(rsl2@rowRanges$name %in% inter_noline_co$name,"Intergenic","")
+             ))))
+
+spp1 <- plotRegion(rsl2,gts = gts,colourBy = "Sample",groupBy = "Group",freeScale = F, outliers = 0.1)+theme_bw()+
+  labs(y = "Log2(IP / Control)", x = "") +
+  scale_colour_manual(values = samcols2,labels = c("H3K4me3","H3K9me3","SPIN1","SPOCD1")) +
+  ggtitle("Average Profiles log2(IP/Control)")
+
+spp1
+
+ggsave("pdf/Average_profile_elements_log2_control.pdf",spp1)
+
+
+spp2 <- plotRegion(rsl2,gts = gts,colourBy = "Group",groupBy = "Sample",freeScale = F, outliers = 0.1)+theme_bw()+
+  labs(y = "Log2(IP / Control)", x = "") +
+  scale_colour_manual(values = peakcols) +
+  ggtitle("Average Profiles log2(IP/Control)")
+
+spp2
+
+ggsave("pdf/Average_profile_elements_by_sample_log2_control.pdf",spp2)
+
+```
+
+```{r anno_eh_s12, echo=FALSE, message=FALSE, warning=FALSE,fig.width=12,fig.height=5}
+## convert chipProfile object to profileplyr object
+ppp <- as_profileplyr(rsl2)
+ppp@rowRanges$sgGroup<-ppp@rowRanges$Group
+ppp |> generateEnrichedHeatmap(matrices_color = col_fun2,
+        group_anno_row_title_gp = gpar(fontsize = 3))
+```
+
+## Overlaps with LINE elements
+
+```{r,warning=F,echo=F,message=F}
+
+repList<-readRDS("../../../yamanaka_ChIP_ATAC-seq_reanalysis_Aug21/transposon_meta_plot_2/repList_unfiltered.rds")
+
+LA = line_co[c(findOverlaps(line_co,repList$L1Md_A) |> queryHits() |> unique())]
+noLA = line_co[-c(findOverlaps(line_co,repList$L1Md_A) |> queryHits() |> unique())]
+LT = noLA[c(findOverlaps(noLA,repList$L1Md_T) |> queryHits() |> unique())]
+noLT = noLA[-c(findOverlaps(noLA,repList$L1Md_T) |> queryHits() |> unique())]
+LF = noLT[c(findOverlaps(noLT,repList$L1Md_F) |> queryHits() |> unique())]
+noLF = noLT[-c(findOverlaps(noLT,repList$L1Md_F) |> queryHits() |> unique())]
+LG = noLF[c(findOverlaps(noLF,repList$L1Md_Gf) |> queryHits() |> unique())]
+other = noLF[-c(findOverlaps(noLF,repList$L1Md_Gf) |> queryHits() |> unique())]
+
+dfr <- data.frame(LINE=c("L1Md_A","L1Md_T","L1Md_F","L1Md_Gf","Other"),
+                 Overlap=c(length(LA),length(LT),length(LF),length(LG),length(other)))
+
+dfr |> gt()
+
+l1cols=c("#D62839","#BA324F","#175676","#4BA3C3","darkgrey")
+    
+dfr |> 
+  mutate(LINE=factor(LINE,levels=c("L1Md_A","L1Md_T","L1Md_F","L1Md_Gf","Other"))) |>
+  ggplot(aes(1,Overlap,fill=LINE))+geom_col(position="stack") +
+  theme_bw()+
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values=l1cols)+
+  xlab("K4 + K9 LINE Peaks")
+
+```
+
+## Overlaps with other repeats
+
+```{r,warning=F,echo=F,message=F}
+
+library(RColorBrewer)
+gcolmap = brewer.pal(n=5,name="Paired")
+gcols=c("Promoter protein-coding"=gcolmap[1],"Promoter non-coding"=gcolmap[2],
+                           "Transcript protein-coding"=gcolmap[3],"Transcript non-coding"=gcolmap[4],"Intergenic"=gcolmap[5])
+
+## Overlap with promoters
+pc_genes = subset(mm10,mm10$biotype=="protein_coding")
+nc_genes = subset(mm10,!mm10$biotype=="protein_coding")
+pc_promoters = promoters(pc_genes,500,1000)
+nc_promoters = promoters(nc_genes,500,1000)
+
+pc_prom_rep_noline_co <- rep_noline_co[findOverlaps(rep_noline_co,pc_promoters) |> queryHits() |> unique()]
+nopc_prom_rep_noline_co <- rep_noline_co[-c(findOverlaps(rep_noline_co,pc_promoters) |> queryHits() |> unique())]
+
+nc_prom_rep_noline_co <- nopc_prom_rep_noline_co[findOverlaps(nopc_prom_rep_noline_co,nc_promoters) |> queryHits() |> unique()]
+nonc_prom_rep_noline_co <- nopc_prom_rep_noline_co[-c(findOverlaps(nopc_prom_rep_noline_co,nc_promoters) |> queryHits() |> unique())]
+
+pc_gene_rep_noline_co <- nonc_prom_rep_noline_co[findOverlaps(nonc_prom_rep_noline_co,pc_genes) |> queryHits() |> unique()]
+nopc_gene_rep_noline_co <- nonc_prom_rep_noline_co[-c(findOverlaps(nonc_prom_rep_noline_co,pc_genes) |> queryHits() |> unique())]
+
+nc_gene_rep_noline_co <- nopc_gene_rep_noline_co[findOverlaps(nopc_gene_rep_noline_co,nc_genes) |> queryHits() |> unique()]
+inter_rep_noline_co <- nopc_gene_rep_noline_co[-c(findOverlaps(nopc_gene_rep_noline_co,nc_genes) |> queryHits() |> unique())]
+
+dfr <- data.frame(Repeat=c("Promoter protein-coding","Promoter non-coding",
+                           "Transcript protein-coding","Transcript non-coding", "Intergenic"),
+                  Overlap=c(length(pc_prom_rep_noline_co),length(nc_prom_rep_noline_co),
+                            length(pc_gene_rep_noline_co),length(nc_gene_rep_noline_co),
+                            length(inter_rep_noline_co))
+)
+
+dfr |> gt()
+
+dfr |> ggplot(aes(x=1,y=Overlap,fill=Repeat)) +
+  geom_col(position="stack") +
+  scale_fill_manual(values=gcols) +
+  theme_bw() +
+  theme(axis.text.x = element_blank()) +
+  xlab("K4 + K9 Repeat Peaks")
+
+```
+
+## Classes of other repeats
+
+PoP = percent of peaks. Note that this will not sum up to the 100% of peaks in the Other Repeats section as some of these peaks overlap with multiple repeats. 
+
+```{r,warning=F,echo=F,message=F}
+repA.grl <- repA |> split(repA$repFamily)
+
+fo<-repA.grl |> map(function(y){
+  rep_noline_co |> findOverlaps(y) |> queryHits() |> unique() |> length()
+})
+
+totalP = length(rep_noline_co)
+
+fo |> 
+  unlist() |> 
+  as.data.frame() |> 
+  rownames_to_column() |> 
+  set_names("Repeat Family","PoP") |>
+  filter(PoP > 0) |>
+  arrange(desc(PoP)) |>
+  mutate(PoP = sprintf("%.2f",((PoP/totalP)*100))) |>
+  gt()
+```
+
+## Overlaps with genes
+
+```{r,warning=F,echo=F,message=F}
+
+## Overlap with promoters
+pc_prom_gene_noline_co <- gene_noline_co[findOverlaps(gene_noline_co,pc_promoters) |> queryHits() |> unique()]
+nopc_prom_gene_noline_co <- gene_noline_co[-c(findOverlaps(gene_noline_co,pc_promoters) |> queryHits() |> unique())]
+
+nc_prom_gene_noline_co <- nopc_prom_gene_noline_co[findOverlaps(nopc_prom_gene_noline_co,nc_promoters) |> queryHits() |> unique()]
+nonc_prom_gene_noline_co <- nopc_prom_gene_noline_co[-c(findOverlaps(nopc_prom_gene_noline_co,nc_promoters) |> queryHits() |> unique())]
+
+pc_gene_gene_noline_co <- nonc_prom_gene_noline_co[findOverlaps(nonc_prom_gene_noline_co,pc_genes) |> queryHits() |> unique()]
+nopc_gene_gene_noline_co <- nonc_prom_gene_noline_co[-c(findOverlaps(nonc_prom_gene_noline_co,pc_genes) |> queryHits() |> unique())]
+
+nc_gene_gene_noline_co <- nopc_gene_gene_noline_co[findOverlaps(nopc_gene_gene_noline_co,nc_genes) |> queryHits() |> unique()]
+inter_gene_noline_co <- nopc_gene_gene_noline_co[-c(findOverlaps(nopc_gene_gene_noline_co,nc_genes) |> queryHits() |> unique())]
+
+
+dfr <- data.frame(Gene=c("Promoter protein-coding","Promoter non-coding",
+                         "Transcript protein-coding","Transcript non-coding"),
+                  Overlap=c(length(pc_prom_gene_noline_co),length(nc_prom_gene_noline_co),
+                            length(pc_gene_gene_noline_co),length(nc_gene_gene_noline_co))
+)
+
+dfr |> gt()
+
+dfr |> ggplot(aes(x=1,y=Overlap,fill=Gene)) +
+  geom_col(position="stack") +
+  scale_fill_manual(values=gcols) +
+  theme_bw() +
+  theme(axis.text.x = element_blank()) +
+  xlab("K4 + K9 Gene Peaks")
+
+```
+
+
